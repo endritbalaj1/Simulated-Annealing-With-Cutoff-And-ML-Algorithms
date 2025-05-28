@@ -146,20 +146,20 @@ directory = os.listdir('input')
 #         print(f"Best Fitness Score for {file}: {optimized_solution.fitness_score}")
 
 
-print("---------- Feature-based Tabu Search ----------")
+# print("---------- Feature-based Tabu Search ----------")
 
-for file in directory:
+# for file in directory:
 
-    if file.endswith('.txt'):
-        parser = Parser(f'./input/{file}')
-        data = parser.parse()
-        solver = Solver()
-        initial_solution = solver.generate_initial_solution_grasp(data)
-        optimized_solution = solver.feature_based_tabu_search(initial_solution, data, tabu_max_len=10, n=5, max_iterations=100)
+#     if file.endswith('.txt'):
+#         parser = Parser(f'./input/{file}')
+#         data = parser.parse()
+#         solver = Solver()
+#         initial_solution = solver.generate_initial_solution_grasp(data)
+#         optimized_solution = solver.feature_based_tabu_search(initial_solution, data, tabu_max_len=10, n=5, max_iterations=100)
 
-        # optimized_solution.export('./output/output.txt')
+#         # optimized_solution.export('./output/output.txt')
 
-        print(f"Best Fitness Score for {file}: {optimized_solution.fitness_score}")
+#         print(f"Best Fitness Score for {file}: {optimized_solution.fitness_score}")
 
 
 # print("---------- ITERATED LOCAL SEARCH WITH RANDOM RESTARTS ----------")
@@ -288,39 +288,6 @@ for file in directory:
 #         print(f'Final score: {score:,}')
 #         print(f'Solution exported to ./output/{file}')
 
-input_folder = './input'
-output_folder = './output'
-os.makedirs(output_folder, exist_ok=True)
-
-# instance_files = [
-#     'UPFIEK.txt',
-#     'a_example.txt',
-#     'b_read_on.txt',
-#     'c_incunabula.txt',
-#     'd_tough_choices.txt',
-#     'e_so_many_books.txt',
-#     'f_libraries_of_the_world.txt',
-#     'Toy instance.txt',
-#     'B5000_L90_D21.txt',
-#     'B50000_L400_D28.txt',
-#     'B100000_L600_D28.txt',
-#     'B90000_L850_D21.txt',
-#     'B95000_L2000_D28.txt',
-#     'switch_book_instance.txt'
-# ]
-
-
-# print("---------- Simulated Annealing With Cutoff And ML Algorithms----------")
-# for file in directory:
-#     if file.endswith('.txt'):
-#         parser = Parser(f'./input/{file}')
-#         data = parser.parse()
-#         score, solution = solver.simulated_annealing_with_cutoff_and_ml_algorithms(data, total_time_ms=1000)
-
-#         solution.export(f'./output/{file}')
-#         print(f'Final score: {score:,}')
-#         print(f'Solution exported to ./output/{file}')
-
 # input_folder = './input'
 # output_folder = './output'
 # os.makedirs(output_folder, exist_ok=True)
@@ -343,32 +310,65 @@ os.makedirs(output_folder, exist_ok=True)
 # ]
 
 
-print("---------- VARIABLE NEIGHBORHOOD SEARCH ----------")
+print("---------- Simulated Annealing With Cutoff And ML Algorithms----------")
+for file in directory:
+    if file.endswith('.txt'):
+        parser = Parser(f'./input/{file}')
+        data = parser.parse()
+        score, solution = solver.simulated_annealing_with_cutoff_and_ml_algorithms(data, total_time_ms=1000)
 
-for filename in os.listdir(input_folder):
-    if filename.endswith('.txt'):
-        input_path = os.path.join(input_folder, filename)
-        output_path = os.path.join(output_folder, f'vns_{filename}')
+        solution.export(f'./output/{file}')
+        print(f'Final score: {score:,}')
+        print(f'Solution exported to ./output/{file}')
 
-        try:
-            print(f"Parsing {filename}...")
-            parser = Parser(input_path)
-            data = parser.parse()
+input_folder = './input'
+output_folder = './output'  
+os.makedirs(output_folder, exist_ok=True)
 
-            print(f"Running VNS on {filename}...")
+instance_files = [
+    'UPFIEK.txt',
+    'a_example.txt',
+    'b_read_on.txt',
+    'c_incunabula.txt',
+    'd_tough_choices.txt',
+    'e_so_many_books.txt',
+    'f_libraries_of_the_world.txt',
+    'Toy instance.txt',
+    'B5000_L90_D21.txt',
+    'B50000_L400_D28.txt',
+    'B100000_L600_D28.txt',
+    'B90000_L850_D21.txt',
+    'B95000_L2000_D28.txt',
+    'switch_book_instance.txt'
+]
 
-            # Run VNS algorithm
-            score, solution = solver.variable_neighborhood_search(data, time_limit_ms=10000)
 
-            # Export the solution
-            solution.export(output_path)
+# print("---------- VARIABLE NEIGHBORHOOD SEARCH ----------")
 
-            print(f'Final VNS score for {filename}: {score:,}')
-            print(f'Solution exported to: {output_path}')
-            print('-' * 50)
+# for filename in os.listdir(input_folder):
+#     if filename.endswith('.txt'):
+#         input_path = os.path.join(input_folder, filename)
+#         output_path = os.path.join(output_folder, f'vns_{filename}')
 
-        except Exception as e:
-            print(f" Error processing {filename}: {e}")
+#         try:
+#             print(f"Parsing {filename}...")
+#             parser = Parser(input_path)
+#             data = parser.parse()
+
+#             print(f"Running VNS on {filename}...")
+
+#             # Run VNS algorithm
+#             score, solution = solver.variable_neighborhood_search(data, time_limit_ms=10000)
+
+#             # Export the solution
+#             solution.export(output_path)
+
+#             print(f'Final VNS score for {filename}: {score:,}')
+#             print(f'Solution exported to: {output_path}')
+#             print('-' * 50)
+
+#         except Exception as e:
+#             print(f" Error processing {filename}: {e}")
 
 # print("---------- GREAT DELUGE ALGORITHM ----------")
 # for file in directory:
@@ -407,20 +407,20 @@ for filename in os.listdir(input_folder):
 #             solution.export(f'./output/hybrid_evolutionary_{file}')
 #             print(f'Final score: {score:,}')
 #             print(f'Solution exported to ./output/hybrid_evolutionary_{file}')
-def run_parallel_sa():
+# def run_parallel_sa():
 
-    print("---------- SIMULATED ANNEALING WITH MULTIPLE TEMPERATURE FUNCTIONS (PARALLEL) ----------")
-    for file in directory:
-        if file.endswith('.txt'):
-            print(f'Computing ./input/{file}')
-            parser = Parser(f'./input/{file}')
-            data = parser.parse()
-            score, solution = solver.simulated_annealing_hybrid_parallel(data, max_iterations=1000)
-            print(f'Best score from SA (parallel) for {file}: {score:,}')
-            output_file = f'./output/sa_hybrid_parallel_{file}'
-            solution.export(output_file)
-            print(f"Processing complete! Output written to: {output_file}")
+#     print("---------- SIMULATED ANNEALING WITH MULTIPLE TEMPERATURE FUNCTIONS (PARALLEL) ----------")
+#     for file in directory:
+#         if file.endswith('.txt'):
+#             print(f'Computing ./input/{file}')
+#             parser = Parser(f'./input/{file}')
+#             data = parser.parse()
+#             score, solution = solver.simulated_annealing_hybrid_parallel(data, max_iterations=1000)
+#             print(f'Best score from SA (parallel) for {file}: {score:,}')
+#             output_file = f'./output/sa_hybrid_parallel_{file}'
+#             solution.export(output_file)
+#             print(f"Processing complete! Output written to: {output_file}")
            
-if __name__ == "__main__":
-    multiprocessing.freeze_support()
-    run_parallel_sa()
+# if __name__ == "__main__":
+#     multiprocessing.freeze_support()
+#     run_parallel_sa()
