@@ -991,9 +991,18 @@ class Solver:
     
     
     def simulated_annealing_with_cutoff_and_ml_algorithms(self, data, total_time_ms=1_800_000, max_steps=100_000):
-        # Lightweight solution representation
+        # Lightweight solution representation with validation
         def create_light_solution(solution):
-            # Calculate diversity safely using scanned books as a fallback
+            # Validate books for each library
+            for lib_id in solution.signed_libraries:
+                if lib_id in solution.scanned_books_per_library:
+                    valid_books = set(data.libraries[lib_id].books) if hasattr(data, 'libraries') and len(data.libraries) > lib_id else set()
+                    invalid_books = [book for book in solution.scanned_books_per_library[lib_id] if book not in valid_books]
+                    if invalid_books:
+                        # Remove invalid books
+                        solution.scanned_books_per_library[lib_id] = [book for book in solution.scanned_books_per_library[lib_id] if book in valid_books]
+
+            # Calculate diversity safely
             all_scanned_books = set(b for books in solution.scanned_books_per_library.values() for b in books)
             total_books = len(getattr(data, 'books', all_scanned_books)) if hasattr(data, 'books') else len(all_scanned_books) or 1
             diversity = len(all_scanned_books) / total_books if total_books > 0 else 0
@@ -1007,21 +1016,21 @@ class Solver:
                 "num_libs": len(solution.signed_libraries)
             }
 
-        # Cooling schedules based on the provided graph
+        # Cooling schedules
         def linear_cooling(temp, step, initial_temp):
-            r = 1.0  # Tune this rate parameter
-            return max(0.1, initial_temp - r * step)  # Prevent temperature from going negative
+            r = 1.0
+            return max(0.1, initial_temp - r * step)
 
         def exponential_cooling(temp, step, initial_temp):
-            alpha = 0.95  # Tune this decay factor (0 < alpha < 1)
+            alpha = 0.95
             return initial_temp * (alpha ** step)
 
         def logarithmic_cooling(temp, step, initial_temp):
-            r = 0.1  # Tune this rate parameter
+            r = 0.1
             return initial_temp / (1 + r * math.log(1 + step))
 
         def quadratic_cooling(temp, step, initial_temp):
-            r = 0.001  # Tune this rate parameter
+            r = 0.001
             return initial_temp / (1 + r * step ** 2)
 
         cooling_schedules = [
@@ -1031,20 +1040,19 @@ class Solver:
             quadratic_cooling
         ]
         cooling_schedule_idx = 0
-        initial_temperature = 1000  # Adjusted from 100 to 1000 for 30-min run, tune if needed
+        initial_temperature = 1000
         temperature = initial_temperature
         stagnation = 0
         steps_since_cooling_switch = 0
         max_steps_per_schedule = max_steps // 4
 
         # Initialize
-        current = create_light_solution(self.generate_initial_solution(data))
+        current = create_light_solution(self.generate_initial_solution_grasp(data))
         best = current.copy()
         tweak_functions = [
             self.tweak_solution_swap_signed_with_unsigned,
             self.tweak_solution_swap_signed,
-            self.tweak_solution_swap_last_book,
-            self.tweak_solution_remove_and_reinsert
+            self.tweak_solution_swap_last_book
         ]
 
         # ML setup
@@ -1070,26 +1078,26 @@ class Solver:
 
             # Generate features (20 features)
             features = [
-                current["score"],  # Current solution score
-                current["diversity"],  # Book diversity
-                current["avg_books_per_lib"],  # Avg books per library
-                current["num_libs"],  # Number of signed libraries
-                temperature,  # Current temperature
-                stagnation,  # Stagnation counter
-                steps_taken / max_steps,  # Progress ratio
-                current["num_libs"] / len(getattr(data, 'libraries', [])) if hasattr(data, 'libraries') else 0,  # Library coverage
-                np.std([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Std of books per library
-                max([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Max books in a library
-                min([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Min books in a library
-                np.mean([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Avg signup time
-                np.std([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Std signup time
-                np.mean([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Avg books per day
-                np.std([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Std books per day
-                current["score"] / max(1, best["score"]),  # Score relative to best
-                delta if 'delta' in locals() else 0,  # Delta from last move
-                temperature / initial_temperature,  # Temperature ratio
-                steps_since_cooling_switch / max_steps_per_schedule,  # Cooling schedule progress
-                cooling_schedule_idx / 4  # Current cooling schedule index
+                current["score"],
+                current["diversity"],
+                current["avg_books_per_lib"],
+                current["num_libs"],
+                temperature,
+                stagnation,
+                steps_taken / max_steps,
+                current["num_libs"] / len(getattr(data, 'libraries', [])) if hasattr(data, 'libraries') else 0,
+                np.std([len(books) for books in current["books"].values()]) if current["books"] else 0,
+                max([len(books) for books in current["books"].values()]) if current["books"] else 0,
+                min([len(books) for books in current["books"].values()]) if current["books"] else 0,
+                np.mean([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,
+                np.std([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,
+                np.mean([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,
+                np.std([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,
+                current["score"] / max(1, best["score"]),
+                delta if 'delta' in locals() else 0,
+                temperature / initial_temperature,
+                steps_since_cooling_switch / max_steps_per_schedule,
+                cooling_schedule_idx / 4
             ]
 
             # Select tweak function
@@ -1102,13 +1110,19 @@ class Solver:
             else:
                 tweak_idx = random.randint(0, 2)
 
-            # Generate neighbor
-            neighbor = create_light_solution(
-                tweak_functions[tweak_idx](
-                    Solution(current["signed"], [], current["books"], set()),
-                    data
-                )
+            # Generate neighbor with validation
+            neighbor_solution = tweak_functions[tweak_idx](
+                Solution(current["signed"], [], current["books"], set()),
+                data
             )
+            # Validate the neighbor to ensure only valid books are assigned
+            for lib_id in neighbor_solution.signed_libraries:
+                if lib_id in neighbor_solution.scanned_books_per_library:
+                    valid_books = set(data.libraries[lib_id].books) if hasattr(data, 'libraries') and len(data.libraries) > lib_id else set()
+                    neighbor_solution.scanned_books_per_library[lib_id] = [
+                        book for book in neighbor_solution.scanned_books_per_library[lib_id] if book in valid_books
+                    ]
+            neighbor = create_light_solution(neighbor_solution)
 
             # Simulated annealing acceptance
             delta = neighbor["score"] - current["score"]
@@ -1136,13 +1150,21 @@ class Solver:
             steps_since_cooling_switch += 1
             steps_taken += 1
 
-        # Convert back to full solution
-        return best["score"], Solution(
+        # Final validation before returning
+        best_solution = Solution(
             best["signed"],
             [],
             best["books"],
             {b for books in best["books"].values() for b in books}
         )
+        for lib_id in best_solution.signed_libraries:
+            if lib_id in best_solution.scanned_books_per_library:
+                valid_books = set(data.libraries[lib_id].books) if hasattr(data, 'libraries') and len(data.libraries) > lib_id else set()
+                best_solution.scanned_books_per_library[lib_id] = [
+                    book for book in best_solution.scanned_books_per_library[lib_id] if book in valid_books
+                ]
+
+        return best["score"], best_solution
         
     def monte_carlo_search(self, data, num_iterations=1000, time_limit=None):
         """

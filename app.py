@@ -315,7 +315,7 @@ for file in directory:
     if file.endswith('.txt'):
         parser = Parser(f'./input/{file}')
         data = parser.parse()
-        score, solution = solver.simulated_annealing_with_cutoff_and_ml_algorithms(data, total_time_ms=1000)
+        score, solution = solver.simulated_annealing_with_cutoff_and_ml_algorithms(data, total_time_ms=30_000)
 
         solution.export(f'./output/{file}')
         print(f'Final score: {score:,}')
