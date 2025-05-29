@@ -5,14 +5,11 @@
       <p>Universiteti i Prishtines</p>
       <p>Fakulteti i Inxhinierise Elektrike dhe Kompjuterike</p>
       <p>Programi Master</p>
-      <p>Profesori: Prof. Dr. Kadri Sulejman</p>
+      <p>Profesori: Prof. Dr. Kadri Sylejmani</p>
       <p>Lenda: Algoritmet e inspiruara nga natyra</p>
     </td>
  </tr>
 </table>
 
 ## Pershkrimi
-Repository per lenden Algoritmet e Inspiruara nga Natyra per vitin 2025
-
-## Menyra e organizimit
-Secili iterim i grupeve per secilen jave ka branch e cakturar qe ka formatin java_X. Secila jave ne fund te punes behet merge me branch-in kryesor main. Pasi qe behet merge java_X-1, krijohet branch per javen_X ne menyre qe mos te kete konflikte.
+Simulated-Annealing-With-Cutoff-And-ML-Algorithms
