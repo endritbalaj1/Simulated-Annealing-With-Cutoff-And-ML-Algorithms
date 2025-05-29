@@ -996,7 +996,6 @@ class Solver:
                 original_books = solution.scanned_books_per_library[lib_id]
                 cleaned_books = [b for b in original_books if b in valid_ids]
                 solution.scanned_books_per_library[lib_id] = cleaned_books
-            # Rirregullo edhe scanned_books
             solution.scanned_books = {
                 b for books in solution.scanned_books_per_library.values() for b in books
             }
@@ -1046,7 +1045,6 @@ class Solver:
 
         cooling_schedules = [cooling_linear, cooling_exp, cooling_log, cooling_quad]
 
-        # Initial setup
         initial_solution = self.generate_initial_solution_grasp(data)
         sanitize_solution(initial_solution, data)
         initial_solution.calculate_fitness_score(data.scores)
@@ -1066,13 +1064,13 @@ class Solver:
             self.tweak_solution_remove_and_reinsert
         ]
 
-        # ML setup
         scaler = StandardScaler()
         X_train, y_train = [], []
-        model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=5, objective='multi:softprob', num_class=3)
-        model_lgb = lgb.LGBMClassifier(n_estimators=100, max_depth=5, objective='multiclass', num_class=3)
-        class_counts = {0: 0, 1: 0, 2: 0}
+        model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=5, objective='multi:softprob', num_class=4)
+        model_lgb = lgb.LGBMClassifier(n_estimators=100, max_depth=5, objective='multiclass', num_class=4)
+        class_counts = {i: 0 for i in range(len(tweak_functions))}
         training_data_size = 200
+        model_trained = False
 
         start_time = time.time()
 
@@ -1086,13 +1084,12 @@ class Solver:
                                        steps_taken, max_steps, best.fitness_score, schedule_idx,
                                        step_in_schedule / max_steps_per_schedule)
 
-            if len(X_train) >= training_data_size and all(
-                    class_counts[i] > 0 for i in range(3)) and random.random() < 0.9:
-                scaled = scaler.fit_transform(np.array([features]))
+            if model_trained and random.random() < 0.9:
+                scaled = scaler.transform(np.array([features]))
                 probs = (model_xgb.predict_proba(scaled)[0] + model_lgb.predict_proba(scaled)[0]) / 2
                 tweak_idx = np.argmax(probs)
             else:
-                tweak_idx = random.randint(0, 2)
+                tweak_idx = random.randint(0, len(tweak_functions) - 1)
 
             candidate = tweak_functions[tweak_idx](current, data)
             sanitize_solution(candidate, data)
@@ -1111,10 +1108,13 @@ class Solver:
                     stagnation += 1
 
                 if len(X_train) >= training_data_size and len(X_train) % 100 == 0:
-                    X_scaled = scaler.fit_transform(np.array(X_train))
                     y_array = np.array(y_train)
-                    model_xgb.fit(X_scaled, y_array)
-                    model_lgb.fit(X_scaled, y_array)
+                    unique_classes = set(y_array)
+                    if all(cls in unique_classes for cls in range(len(tweak_functions))):
+                        X_scaled = scaler.fit_transform(np.array(X_train))
+                        model_xgb.fit(X_scaled, y_array)
+                        model_lgb.fit(X_scaled, y_array)
+                        model_trained = True
 
             temperature = cooling_schedules[schedule_idx](temperature, step_in_schedule, 1000)
             step_in_schedule += 1
