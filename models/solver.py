@@ -988,58 +988,77 @@ class Solver:
             best["books"],
             {b for books in best["books"].values() for b in books}
         )
-    
-    
-    def simulated_annealing_with_cutoff_and_ml_algorithms(self, data, total_time_ms=1_800_000, max_steps=100_000):
-        # Lightweight solution representation
-        def create_light_solution(solution):
-            # Calculate diversity safely using scanned books as a fallback
-            all_scanned_books = set(b for books in solution.scanned_books_per_library.values() for b in books)
-            total_books = len(getattr(data, 'books', all_scanned_books)) if hasattr(data, 'books') else len(all_scanned_books) or 1
-            diversity = len(all_scanned_books) / total_books if total_books > 0 else 0
 
-            return {
-                "signed": list(solution.signed_libraries),
-                "books": dict(solution.scanned_books_per_library),
-                "score": solution.fitness_score,
-                "diversity": diversity,
-                "avg_books_per_lib": np.mean([len(books) for books in solution.scanned_books_per_library.values()]) if solution.scanned_books_per_library else 0,
-                "num_libs": len(solution.signed_libraries)
+    def simulated_annealing_with_cutoff_and_ml_algorithms(self, data, total_time_ms=1_800_000, max_steps=100_000):
+        def sanitize_solution(solution, data):
+            for lib_id in list(solution.scanned_books_per_library):
+                valid_ids = {book.id for book in data.libs[lib_id].books}
+                original_books = solution.scanned_books_per_library[lib_id]
+                cleaned_books = [b for b in original_books if b in valid_ids]
+                solution.scanned_books_per_library[lib_id] = cleaned_books
+            # Rirregullo edhe scanned_books
+            solution.scanned_books = {
+                b for books in solution.scanned_books_per_library.values() for b in books
             }
 
-        # Cooling schedules based on the provided graph
-        def linear_cooling(temp, step, initial_temp):
-            r = 1.0  # Tune this rate parameter
-            return max(0.1, initial_temp - r * step)  # Prevent temperature from going negative
+        def create_features(solution, score, temperature, stagnation, steps_taken, max_steps, best_score, schedule_idx,
+                            step_in_schedule):
+            all_books = solution.scanned_books_per_library.values()
+            num_books_per_lib = [len(books) for books in all_books] if all_books else [0]
+            diversity = len(solution.scanned_books) / (len(getattr(data, 'books', solution.scanned_books)) or 1)
+            return [
+                score,
+                diversity,
+                np.mean(num_books_per_lib),
+                len(solution.signed_libraries),
+                temperature,
+                stagnation,
+                steps_taken / max_steps,
+                len(solution.signed_libraries) / len(data.libs),
+                np.std(num_books_per_lib),
+                max(num_books_per_lib),
+                min(num_books_per_lib),
+                np.mean([data.libs[lib].signup_days for lib in
+                         solution.signed_libraries]) if solution.signed_libraries else 0,
+                np.std([data.libs[lib].signup_days for lib in
+                        solution.signed_libraries]) if solution.signed_libraries else 0,
+                np.mean([data.libs[lib].books_per_day for lib in
+                         solution.signed_libraries]) if solution.signed_libraries else 0,
+                np.std([data.libs[lib].books_per_day for lib in
+                        solution.signed_libraries]) if solution.signed_libraries else 0,
+                score / max(1, best_score),
+                temperature / 1000,
+                step_in_schedule,
+                schedule_idx / 4
+            ]
 
-        def exponential_cooling(temp, step, initial_temp):
-            alpha = 0.95  # Tune this decay factor (0 < alpha < 1)
-            return initial_temp * (alpha ** step)
+        def cooling_linear(temp, step, init_temp):
+            return max(0.1, init_temp - 1.0 * step)
 
-        def logarithmic_cooling(temp, step, initial_temp):
-            r = 0.1  # Tune this rate parameter
-            return initial_temp / (1 + r * math.log(1 + step))
+        def cooling_exp(temp, step, init_temp):
+            return init_temp * (0.95 ** step)
 
-        def quadratic_cooling(temp, step, initial_temp):
-            r = 0.001  # Tune this rate parameter
-            return initial_temp / (1 + r * step ** 2)
+        def cooling_log(temp, step, init_temp):
+            return init_temp / (1 + 0.1 * math.log(1 + step))
 
-        cooling_schedules = [
-            linear_cooling,
-            exponential_cooling,
-            logarithmic_cooling,
-            quadratic_cooling
-        ]
-        cooling_schedule_idx = 0
-        initial_temperature = 1000  # Adjusted from 100 to 1000 for 30-min run, tune if needed
-        temperature = initial_temperature
+        def cooling_quad(temp, step, init_temp):
+            return init_temp / (1 + 0.001 * step ** 2)
+
+        cooling_schedules = [cooling_linear, cooling_exp, cooling_log, cooling_quad]
+
+        # Initial setup
+        initial_solution = self.generate_initial_solution_grasp(data)
+        sanitize_solution(initial_solution, data)
+        initial_solution.calculate_fitness_score(data.scores)
+        current = initial_solution
+        best = initial_solution
+        temperature = 1000
+        schedule_idx = 0
+        step_in_schedule = 0
         stagnation = 0
-        steps_since_cooling_switch = 0
+        steps_taken = 0
         max_steps_per_schedule = max_steps // 4
 
-        # Initialize
-        current = create_light_solution(self.generate_initial_solution(data))
-        best = current.copy()
         tweak_functions = [
             self.tweak_solution_swap_signed_with_unsigned,
             self.tweak_solution_swap_signed,
@@ -1049,101 +1068,62 @@ class Solver:
 
         # ML setup
         scaler = StandardScaler()
-        X_train = []
-        y_train = []
-        classes = [0, 1, 2]
-        model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=5, random_state=42, objective='multi:softprob', num_class=3)
-        model_lgb = lgb.LGBMClassifier(n_estimators=100, max_depth=5, random_state=42, objective='multiclass', num_class=3)
-        training_data_size = 200
+        X_train, y_train = [], []
+        model_xgb = xgb.XGBClassifier(n_estimators=100, max_depth=5, objective='multi:softprob', num_class=3)
+        model_lgb = lgb.LGBMClassifier(n_estimators=100, max_depth=5, objective='multiclass', num_class=3)
         class_counts = {0: 0, 1: 0, 2: 0}
+        training_data_size = 200
 
-        # Time management
         start_time = time.time()
 
-        steps_taken = 0
         while (time.time() - start_time) * 1000 < total_time_ms and steps_taken < max_steps:
-            # Switch cooling schedule
             if steps_taken > 0 and steps_taken % max_steps_per_schedule == 0:
-                cooling_schedule_idx = (cooling_schedule_idx + 1) % 4
-                temperature = initial_temperature
-                steps_since_cooling_switch = 0
+                schedule_idx = (schedule_idx + 1) % 4
+                temperature = 1000
+                step_in_schedule = 0
 
-            # Generate features (20 features)
-            features = [
-                current["score"],  # Current solution score
-                current["diversity"],  # Book diversity
-                current["avg_books_per_lib"],  # Avg books per library
-                current["num_libs"],  # Number of signed libraries
-                temperature,  # Current temperature
-                stagnation,  # Stagnation counter
-                steps_taken / max_steps,  # Progress ratio
-                current["num_libs"] / len(getattr(data, 'libraries', [])) if hasattr(data, 'libraries') else 0,  # Library coverage
-                np.std([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Std of books per library
-                max([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Max books in a library
-                min([len(books) for books in current["books"].values()]) if current["books"] else 0,  # Min books in a library
-                np.mean([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Avg signup time
-                np.std([data.libraries[lib].signup_time for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Std signup time
-                np.mean([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Avg books per day
-                np.std([data.libraries[lib].books_per_day for lib in current["signed"]]) if current["signed"] and hasattr(data, 'libraries') else 0,  # Std books per day
-                current["score"] / max(1, best["score"]),  # Score relative to best
-                delta if 'delta' in locals() else 0,  # Delta from last move
-                temperature / initial_temperature,  # Temperature ratio
-                steps_since_cooling_switch / max_steps_per_schedule,  # Cooling schedule progress
-                cooling_schedule_idx / 4  # Current cooling schedule index
-            ]
+            features = create_features(current, current.fitness_score, temperature, stagnation,
+                                       steps_taken, max_steps, best.fitness_score, schedule_idx,
+                                       step_in_schedule / max_steps_per_schedule)
 
-            # Select tweak function
-            if len(X_train) >= training_data_size and all(count > 0 for count in class_counts.values()) and random.random() < 0.9:
-                features_scaled = scaler.fit_transform(np.array([features]))
-                xgb_probs = model_xgb.predict_proba(features_scaled)[0]
-                lgb_probs = model_lgb.predict_proba(features_scaled)[0]
-                avg_probs = (xgb_probs + lgb_probs) / 2
-                tweak_idx = np.argmax(avg_probs)
+            if len(X_train) >= training_data_size and all(
+                    class_counts[i] > 0 for i in range(3)) and random.random() < 0.9:
+                scaled = scaler.fit_transform(np.array([features]))
+                probs = (model_xgb.predict_proba(scaled)[0] + model_lgb.predict_proba(scaled)[0]) / 2
+                tweak_idx = np.argmax(probs)
             else:
                 tweak_idx = random.randint(0, 2)
 
-            # Generate neighbor
-            neighbor = create_light_solution(
-                tweak_functions[tweak_idx](
-                    Solution(current["signed"], [], current["books"], set()),
-                    data
-                )
-            )
+            candidate = tweak_functions[tweak_idx](current, data)
+            sanitize_solution(candidate, data)
+            candidate.calculate_fitness_score(data.scores)
 
-            # Simulated annealing acceptance
-            delta = neighbor["score"] - current["score"]
+            delta = candidate.fitness_score - current.fitness_score
             if delta > 0 or random.random() < math.exp(delta / max(temperature, 1e-6)):
+                current = candidate
                 X_train.append(features)
                 y_train.append(tweak_idx)
                 class_counts[tweak_idx] += 1
-                current = neighbor
-
-                if current["score"] > best["score"]:
-                    best = current.copy()
+                if current.fitness_score > best.fitness_score:
+                    best = current
                     stagnation = 0
                 else:
                     stagnation += 1
 
-                # Train models
-                if len(X_train) >= training_data_size and len(X_train) % 100 == 0 and all(count > 0 for count in class_counts.values()):
+                if len(X_train) >= training_data_size and len(X_train) % 100 == 0:
                     X_scaled = scaler.fit_transform(np.array(X_train))
                     y_array = np.array(y_train)
                     model_xgb.fit(X_scaled, y_array)
                     model_lgb.fit(X_scaled, y_array)
 
-            # Update temperature
-            temperature = cooling_schedules[cooling_schedule_idx](temperature, steps_since_cooling_switch, initial_temperature)
-            steps_since_cooling_switch += 1
+            temperature = cooling_schedules[schedule_idx](temperature, step_in_schedule, 1000)
+            step_in_schedule += 1
             steps_taken += 1
 
-        # Convert back to full solution
-        return best["score"], Solution(
-            best["signed"],
-            [],
-            best["books"],
-            {b for books in best["books"].values() for b in books}
-        )
-        
+        sanitize_solution(best, data)
+        best.calculate_fitness_score(data.scores)
+        return best.fitness_score, best
+
     def monte_carlo_search(self, data, num_iterations=1000, time_limit=None):
         """
         Monte Carlo search algorithm for finding optimal library configurations.
